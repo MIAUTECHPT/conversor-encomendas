@@ -1,3 +1,33 @@
+import streamlit as st
+
+# --- SISTEMA DE LOGIN / PASSWORD ---
+def check_password():
+    """Retorna True se a palavra-passe estiver correta."""
+    def password_entered():
+        if st.session_state["password"] == "moldes2026":  # Podes alterar aqui a palavra-passe que quiseres!
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # Remove a password da memória por segurança
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # Primeiro acesso: pede a password
+        st.title("🔒 Acesso Restrito")
+        st.text_input("Introduz a palavra-passe para aceder à aplicação:", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password incorreta
+        st.title("🔒 Acesso Restrito")
+        st.text_input("Introduz a palavra-passe para aceder à aplicação:", type="password", on_change=password_entered, key="password")
+        st.error("😕 Palavra-passe incorreta. Tenta novamente.")
+        return False
+    else:
+        # Autenticado com sucesso
+        return True
+
+if not check_password():
+    st.stop()  # Impede que o resto da aplicação seja executado se não houver login válido
+    
 from __future__ import annotations
 
 import io
