@@ -1,4 +1,17 @@
+import io
+import json
+import re
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
+import pdfplumber
+import qrcode
 import streamlit as st
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas
 
 # --- SISTEMA DE LOGIN / PASSWORD ---
 def check_password():
@@ -27,24 +40,8 @@ def check_password():
 
 if not check_password():
     st.stop()  # Impede que o resto da aplicação seja executado se não houver login válido
-    
-    from __future__ import annotations
 
-import io
-import json
-import re
-from datetime import datetime
-from pathlib import Path
-
-import pandas as pd
-import pdfplumber
-import qrcode
-import streamlit as st
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
-
+# --- CONFIGURAÇÃO E VARIÁVEIS DA APLICAÇÃO ---
 APP_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = APP_DIR / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -509,6 +506,7 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
     return output.getvalue()
 
 
+# --- INTERFACE PRINCIPAL ---
 st.set_page_config(page_title="Conversor de Encomendas", page_icon="🏷️", layout="wide")
 st.title("Conversor de notas de encomenda")
 st.caption("PDF → Excel consolidado → etiquetas A4 com QR Code.")
