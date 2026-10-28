@@ -17,29 +17,26 @@ from reportlab.pdfgen import canvas
 def check_password():
     """Retorna True se a palavra-passe estiver correta."""
     def password_entered():
-        if st.session_state["password"] == "moldes2026":  # Podes alterar aqui a palavra-passe que quiseres!
+        if st.session_state["password"] == "moldes2026":
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Remove a password da memória por segurança
+            del st.session_state["password"]
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Primeiro acesso: pede a password
         st.title("🔒 Acesso Restrito")
         st.text_input("Introduz a palavra-passe para aceder à aplicação:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        # Password incorreta
         st.title("🔒 Acesso Restrito")
         st.text_input("Introduz a palavra-passe para aceder à aplicação:", type="password", on_change=password_entered, key="password")
         st.error("😕 Palavra-passe incorreta. Tenta novamente.")
         return False
     else:
-        # Autenticado com sucesso
         return True
 
 if not check_password():
-    st.stop()  # Impede que o resto da aplicação seja executado se não houver login válido
+    st.stop()
 
 # --- CONFIGURAÇÃO E VARIÁVEIS DA APLICAÇÃO ---
 APP_DIR = Path(__file__).resolve().parent
@@ -89,7 +86,6 @@ def format_qty(val) -> str:
 
 @st.cache_data
 def load_equivalences() -> pd.DataFrame:
-    """Lê a tabela de equivalências: Coluna B (Descrição p/ busca), Coluna C (Correspondente) e Coluna D (Preço)."""
     if not EQUIVALENCES_FILE.exists():
         return pd.DataFrame(columns=["Descricao_Key", "Correspondente_Excel", "P.U."])
     
@@ -102,7 +98,6 @@ def load_equivalences() -> pd.DataFrame:
             return pd.DataFrame(columns=["Descricao_Key", "Correspondente_Excel", "P.U."])
         
         sub_df = sub_df.dropna(subset=["Descricao_Excel"])
-        
         sub_df["Descricao_Key"] = sub_df["Descricao_Excel"].astype(str).str.lower().str.strip()
         sub_df["Correspondente_Excel"] = sub_df["Correspondente_Excel"].fillna("").astype(str).str.strip()
         sub_df["P.U."] = pd.to_numeric(
@@ -130,19 +125,15 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
     date_match = DATE_RE.search(full_text)
     document_date = date_match.group(1) if date_match else ""
 
-    # Extração direta do nome da empresa a partir do nome do ficheiro (ex: ENF-IMA-101139.pdf -> IMA)
     supplier = "Empresa"
     clean_filename = filename.upper()
-    
-    # Procura pelo padrão ENF-[EMPRESA]-[NUMERO] ou similar no nome do ficheiro
     enf_match = re.search(r"ENF[-_]?([A-Z]+)[-_]?\d+", clean_filename)
     if enf_match:
         supplier = enf_match.group(1).strip()
     else:
-        # Alternativa caso o nome do ficheiro tenha outra estrutura (ex: IMA_101139.pdf)
         parts = re.split(r"[-_\s]+", Path(filename).stem)
         for part in parts:
-            if part.isalpha() and len(part) <= 5:  # Identifica siglas como IMA, IGM, etc.
+            if part.isalpha() and len(part) <= 5:
                 supplier = part.upper()
                 break
 
@@ -174,6 +165,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                 continue
 
             if current_item:
+                # Deteta "Molde: ..., Compon.: ..."
                 mould_match = re.search(
                     r"Molde\s*:\s*([^,]+)\s*,\s*Compon\.?\s*:\s*(\S+)",
                     line,
@@ -184,25 +176,35 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                         f"Molde: {mould_match.group(1).strip()}, "
                         f"Compon.: {mould_match.group(2).strip()}"
                     )
-                elif (
-                    not re.match(r"^\s*\d+\s+\d{6,}\s+", raw_line)
-                    and ":" not in line
-                    and len(line) <= 45
-                    and not any(
-                        token in line.lower()
-                        for token in (
-                            "nota de encomenda", "processado por computador", "página",
-                            "total ", "mda -", "conservatória", "rua ", "zona industrial",
-                            "tel.:", "e-mail:", "original", "data ", "fornecedor", "contribuinte",
-                            "pagamento", "moeda", "item código", "atenção", "tratar com",
-                            "local de entrega", "compra sustentável", "3720-502", "santiago da riba",
-                            "valor sujeito", "taxa valor", "normal", "desc. doc", "efeitos imediatos"
+                else:
+                    # Deteta a linha da Estação Bancada (ex: "Estação Bancada: E0")
+                    station_match = re.search(r"Estação\s+Bancada\s*:\s*(.+)", line, re.IGNORECASE)
+                    if station_match:
+                        station_val = station_match.group(1).strip()
+                        existing_mould = current_item.get("Molde e componente", "")
+                        if existing_mould:
+                            current_item["Molde e componente"] = f"{existing_mould} | Estação: {station_val}"
+                        else:
+                            current_item["Molde e componente"] = f"Estação: {station_val}"
+                    elif (
+                        not re.match(r"^\s*\d+\s+\d{6,}\s+", raw_line)
+                        and ":" not in line
+                        and len(line) <= 45
+                        and not any(
+                            token in line.lower()
+                            for token in (
+                                "nota de encomenda", "processado por computador", "página",
+                                "total ", "mda -", "conservatória", "rua ", "zona industrial",
+                                "tel.:", "e-mail:", "original", "data ", "fornecedor", "contribuinte",
+                                "pagamento", "moeda", "item código", "atenção", "tratar com",
+                                "local de entrega", "compra sustentável", "3720-502", "santiago da riba",
+                                "valor sujeito", "taxa valor", "normal", "desc. doc", "efeitos imediatos"
+                            )
                         )
-                    )
-                ):
-                    current_item["Descrição"] = normalize_space(
-                        current_item["Descrição"] + " " + line
-                    )
+                    ):
+                        current_item["Descrição"] = normalize_space(
+                            current_item["Descrição"] + " " + line
+                        )
 
     if current_item:
         rows.append(current_item)
@@ -231,7 +233,6 @@ def make_excel(df: pd.DataFrame) -> bytes:
 
 def make_pivot_excel(df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
-    
     temp_df = df.copy()
     temp_df["Qtd_Num"] = pd.to_numeric(
         temp_df["Qtd. Doc."].astype(str).str.replace(",", "."), errors="coerce"
@@ -241,10 +242,8 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
     pivot_df = pivot_df.rename(columns={"Qtd_Num": "Quantidade Total"})
     
     df_eq = load_equivalences()
-    
     if not df_eq.empty:
         pivot_df["Desc_Key"] = pivot_df["Descrição"].astype(str).str.lower().str.strip()
-        
         pivot_df = pd.merge(
             pivot_df,
             df_eq,
@@ -252,12 +251,10 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
             right_on="Descricao_Key",
             how="left"
         )
-        
         pivot_df["Correspondente_Fornecedor"] = pivot_df["Correspondente_Excel"].apply(
             lambda x: x if pd.notna(x) and str(x).strip() != "" else None
         )
         pivot_df["Correspondente_Fornecedor"] = pivot_df["Correspondente_Fornecedor"].fillna(pivot_df["Descrição"])
-        
         pivot_df["P.U."] = pd.to_numeric(pivot_df["P.U."], errors="coerce").fillna(0.0)
         pivot_df = pivot_df.drop(columns=["Desc_Key", "Descricao_Key", "Correspondente_Excel"], errors="ignore")
     else:
@@ -265,7 +262,6 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         pivot_df["P.U."] = 0.0
 
     pivot_df["Preço Total (€)"] = pivot_df["Quantidade Total"] * pivot_df["P.U."]
-    
     pivot_df = pivot_df.rename(columns={
         "Art./Serv.": "Código Artigo",
         "Descrição": "Descrição (PDF)",
@@ -323,7 +319,7 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
         def get_base_mould(val):
             if pd.isna(val) or str(val) == "Molde: N/D":
                 return "N/D"
-            m = re.search(r"Molde\s*:\s*([^,]+)", str(val), re.IGNORECASE)
+            m = re.search(r"Molde\s*:\s*([^,|]+)", str(val), re.IGNORECASE)
             return m.group(1).strip() if m else str(val)
 
         group["Base_Molde"] = group["Molde e componente"].apply(get_base_mould)
@@ -331,13 +327,18 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
         for base_m, sub_group in group.groupby("Base_Molde"):
             total_qty = sub_group["Qtd_Num"].sum()
             componentes = []
+            estacoes = []
             for val in sub_group["Molde e componente"]:
-                if pd.notna(val) and str(val).strip() and str(val) != "Molde: N/D":
-                    m_comp = re.search(r"Compon\.?\s*:\s*(.+)", str(val), re.IGNORECASE)
+                if pd.notna(val) and str(val).strip():
+                    m_comp = re.search(r"Compon\.?\s*:\s*([^|]+)", str(val), re.IGNORECASE)
                     if m_comp:
                         componentes.append(m_comp.group(1).strip())
+                    m_est = re.search(r"Estação\s*:\s*(.+)", str(val), re.IGNORECASE)
+                    if m_est:
+                        estacoes.append(m_est.group(1).strip())
 
             unique_comps = sorted(list(set(componentes)))
+            unique_est = sorted(list(set(estacoes)))
             first_row = sub_group.iloc[0]
             
             grouped_labels.append({
@@ -348,7 +349,8 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
                 "Und.": first_row["Und."],
                 "Qtd. Doc.": total_qty,
                 "Molde": base_m,
-                "Componentes": " / ".join(unique_comps) if unique_comps else ""
+                "Componentes": " / ".join(unique_comps) if unique_comps else "",
+                "Estação": " / ".join(unique_est) if unique_est else ""
             })
 
     grouped_labels = pd.DataFrame(grouped_labels)
@@ -374,8 +376,8 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
         qtd_val = f"{clean_qty} {row.get('Und.', '')}".strip()
         molde_val = str(row.get("Molde", "") or "")
         comps_val = str(row.get("Componentes", "") or "")
+        estacao_val = str(row.get("Estação", "") or "")
 
-        # Monta a linha de cabeçalho ex: "IGM — Encomenda: ENF A/101139"
         if supplier_name and supplier_name != "Fornecedor Desconhecido":
             header_text = f"{supplier_name} — Encomenda: {order_no}" if order_no else supplier_name
         else:
@@ -394,11 +396,17 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
             payload["Descrição"] = str(row.get("Descrição"))
         if clean_qty:
             payload["Qtd. Doc."] = qtd_val
+        
+        m_payload_parts = []
         if molde_val and molde_val != "N/D":
-            m_payload = f"Molde: {molde_val}"
-            if comps_val:
-                m_payload += f", Compon.: {comps_val}"
-            payload["Molde e componente"] = m_payload
+            m_payload_parts.append(f"Molde: {molde_val}")
+        if comps_val:
+            m_payload_parts.append(f"Compon.: {comps_val}")
+        if estacao_val:
+            m_payload_parts.append(f"Estação: {estacao_val}")
+            
+        if m_payload_parts:
+            payload["Molde e componente"] = ", ".join(m_payload_parts)
 
         qr_size = min(qr_max_size, label_w * 0.48, label_h * 0.72)
         qr_x = x + label_w - qr_size - 1.5 * mm
@@ -417,7 +425,7 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
 
         desc_val = str(row.get("Descrição", "") or "")
 
-        # 1. Cabeçalho com Empresa e Encomenda (com corte automático se for comprido)
+        # 1. Cabeçalho
         if header_text:
             c.setFont("Helvetica-Bold", 8.5)
             avail_h = max(10, max_text_width)
@@ -425,15 +433,15 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
             while shown_h and c.stringWidth(shown_h, "Helvetica-Bold", 8.5) > avail_h:
                 shown_h = shown_h[:-1]
             c.drawString(text_x, text_y, shown_h)
-            text_y -= 4.5 * mm
+            text_y -= 4.2 * mm
 
         # 2. Descrição (até 2 linhas)
         if desc_val:
             lbl = "Descrição:"
-            c.setFont("Helvetica-Bold", 9)
+            c.setFont("Helvetica-Bold", 8.5)
             c.drawString(text_x, text_y, lbl)
-            c.setFont("Helvetica", 9)
-            p_w = c.stringWidth(lbl + " ", "Helvetica-Bold", 9)
+            c.setFont("Helvetica", 8.5)
+            p_w = c.stringWidth(lbl + " ", "Helvetica-Bold", 8.5)
             avail_l1 = max(10, max_text_width - p_w)
             avail_l2 = max(10, label_w - 5 * mm)
 
@@ -441,191 +449,53 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
             l1, l2 = "", ""
             for w in words:
                 test = (l1 + " " + w).strip()
-                if c.stringWidth(test, "Helvetica", 9) <= avail_l1:
+                if c.stringWidth(test, "Helvetica", 8.5) <= avail_l1:
                     l1 = test
                 else:
                     test2 = (l2 + " " + w).strip()
-                    if c.stringWidth(test2, "Helvetica", 9) <= avail_l2:
+                    if c.stringWidth(test2, "Helvetica", 8.5) <= avail_l2:
                         l2 = test2
                     else:
                         l2 += "..."
                         break
 
             c.drawString(text_x + p_w, text_y, l1)
-            text_y -= 4 * mm
+            text_y -= 3.8 * mm
             if l2:
                 c.drawString(text_x, text_y, l2)
-                text_y -= 4 * mm
+                text_y -= 3.8 * mm
             else:
-                text_y -= 1 * mm
+                text_y -= 0.8 * mm
 
         # 3. Quantidade
         if qtd_val:
             lbl = "Quantidade:"
-            c.setFont("Helvetica-Bold", 9)
+            c.setFont("Helvetica-Bold", 8.5)
             c.drawString(text_x, text_y, lbl)
-            c.setFont("Helvetica", 9)
-            p_w = c.stringWidth(lbl + " ", "Helvetica-Bold", 9)
+            c.setFont("Helvetica", 8.5)
+            p_w = c.stringWidth(lbl + " ", "Helvetica-Bold", 8.5)
             c.drawString(text_x + p_w, text_y, qtd_val)
-            text_y -= 4.5 * mm
+            text_y -= 4.0 * mm
 
-        # 4. Molde (Linha dedicada)
+        # 4. Molde
         if molde_val and molde_val != "N/D":
             lbl_m = "Molde:"
-            c.setFont("Helvetica-Bold", 9)
+            c.setFont("Helvetica-Bold", 8.5)
             c.drawString(text_x, text_y, lbl_m)
-            c.setFont("Helvetica", 9)
-            p_wm = c.stringWidth(lbl_m + " ", "Helvetica-Bold", 9)
-            
+            c.setFont("Helvetica", 8.5)
+            p_wm = c.stringWidth(lbl_m + " ", "Helvetica-Bold", 8.5)
             avail_m = max(10, max_text_width - p_wm)
             shown_m = molde_val
-            while shown_m and c.stringWidth(shown_m, "Helvetica", 9) > avail_m:
+            while shown_m and c.stringWidth(shown_m, "Helvetica", 8.5) > avail_m:
                 shown_m = shown_m[:-1]
             c.drawString(text_x + p_wm, text_y, shown_m)
-            text_y -= 4.2 * mm
+            text_y -= 3.8 * mm
 
-        # 5. Componentes (Linha seguinte dedicada, se existirem)
+        # 5. Componentes
         if comps_val:
             lbl_c = "Comp.:"
-            c.setFont("Helvetica-Bold", 9)
+            c.setFont("Helvetica-Bold", 8.5)
             c.drawString(text_x, text_y, lbl_c)
-            c.setFont("Helvetica", 9)
-            p_wc = c.stringWidth(lbl_c + " ", "Helvetica-Bold", 9)
-            
-            avail_c = max(10, max_text_width - p_wc)
-            shown_c = comps_val
-            while shown_c and c.stringWidth(shown_c, "Helvetica", 9) > avail_c:
-                shown_c = shown_c[:-1]
-            if shown_c != comps_val and len(shown_c) > 3:
-                shown_c = shown_c[:-3] + "..."
-            c.drawString(text_x + p_wc, text_y, shown_c)
-
-        if position == columns_per_page * rows_per_page - 1 or idx == len(grouped_labels) - 1:
-            c.showPage()
-    c.save()
-    return output.getvalue()
-
-
-# --- INTERFACE PRINCIPAL ---
-st.set_page_config(page_title="Conversor de Encomendas", page_icon="🏷️", layout="wide")
-st.title("Conversor de notas de encomenda")
-st.caption("PDF → Excel consolidado → etiquetas A4 com QR Code.")
-
-st.sidebar.header("Configuração de Impressão")
-layout_option = st.sidebar.radio(
-    "Escolha o formato das etiquetas:",
-    (
-        "2x5 (10 por página)",
-        "2x7 (14 por página)",
-        "2x8 (16 por página)"
-    ),
-    index=2
-)
-
-uploads = st.file_uploader("Seleciona uma ou várias notas de encomenda em PDF", type=["pdf"], accept_multiple_files=True)
-
-if "data" not in st.session_state:
-    st.session_state.data = None
-
-if uploads:
-    all_rows, all_warnings = [], []
-    for uploaded in uploads:
-        rows, warnings = parse_pdf(uploaded.getvalue(), uploaded.name)
-        all_rows.extend(rows)
-        all_warnings.extend(warnings)
-
-    if all_rows:
-        df = pd.DataFrame(all_rows)
-        df = df.sort_values(
-            by=["Fornecedor", "Nº encomenda", "_Item PDF", "Art./Serv."],
-            kind="stable",
-            na_position="last",
-        ).reset_index(drop=True)
-        st.session_state.data = df
-    else:
-        st.session_state.data = pd.DataFrame(columns=COLUMNS + ["_Item PDF"])
-
-    for warning in all_warnings:
-        st.warning(warning)
-
-df = st.session_state.data
-if df is not None and len(df):
-    st.subheader("1. Confirmar, Corrigir e Ordenar os Dados (Personalizado)")
-    st.write(f"Artigos encontrados: **{len(df)}**")
-    
-    with st.expander("⚙️ Opções de Ordenação Avançada (Até 3 Níveis)", expanded=False):
-        available_cols = [col for col in COLUMNS if col in df.columns]
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            sort_1 = st.selectbox("1º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=2 if "Nº encomenda" in available_cols else 0)
-            asc_1 = st.radio("Direção (1º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_1") == "Ascendente (A-Z)"
-        with c2:
-            sort_2 = st.selectbox("2º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=4 if "Molde e componente" in available_cols else 0)
-            asc_2 = st.radio("Direção (2º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_2") == "Ascendente (A-Z)"
-
-        c3, c4 = st.columns(2)
-        with c3:
-            sort_3 = st.selectbox("3º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=0)
-            asc_3 = st.radio("Direção (3º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_3") == "Ascendente (A-Z)"
-
-    sort_cols_list = []
-    sort_asc_list = []
-    
-    if sort_1 != "(Nenhum)":
-        sort_cols_list.append(sort_1)
-        sort_asc_list.append(asc_1)
-    if sort_2 != "(Nenhum)" and sort_2 not in sort_cols_list:
-        sort_cols_list.append(sort_2)
-        sort_asc_list.append(asc_2)
-    if sort_3 != "(Nenhum)" and sort_3 not in sort_cols_list:
-        sort_cols_list.append(sort_3)
-        sort_asc_list.append(asc_3)
-
-    if not sort_cols_list:
-        sort_cols_list = ["Fornecedor", "Nº encomenda", "_Item PDF"]
-        sort_asc_list = [True, True, True]
-
-    df_sorted = df.sort_values(by=sort_cols_list, ascending=sort_asc_list, kind="stable").reset_index(drop=True)
-
-    edited = st.data_editor(
-        df_sorted,
-        use_container_width=True,
-        num_rows="dynamic",
-        column_config={
-            "_Item PDF": st.column_config.NumberColumn("Item PDF", disabled=True),
-            "Qtd. Doc.": st.column_config.TextColumn("Qtd. Doc."),
-        },
-        key="orders_editor",
-    )
-    st.session_state.data = edited
-
-    st.subheader("2. Exportar")
-    col_ex1, col_ex2, col_ex3 = st.columns(3)
-    with col_ex1:
-        excel_bytes = make_excel(edited)
-        st.download_button(
-            "Excel Consolidado",
-            data=excel_bytes,
-            file_name="encomendas_consolidadas.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    with col_ex2:
-        pivot_bytes = make_pivot_excel(edited)
-        st.download_button(
-            "Tabela Dinâmica (Resumo)",
-            data=pivot_bytes,
-            file_name="tabela_dinamica_artigos.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    with col_ex3:
-        labels_bytes = make_labels_pdf(edited, layout_option)
-        st.download_button(
-            "Etiquetas A4 (PDF)",
-            data=labels_bytes,
-            file_name="etiquetas_encomendas.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
+            c.setFont("Helvetica", 8.5)
+            p_wc = c.stringWidth(lbl_c + " ", "Helvetica-Bold", 8.5)
+            avail_c = max(10, max_text_
