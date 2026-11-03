@@ -251,6 +251,21 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                 supplier = part.upper()
                 break
 
+    def clean_description(text: str) -> str:
+        # Corta a string se encontrar qualquer um destes termos de morada/rodapé
+        patterns_to_cut = [
+            r"Ouriçosa.*",
+            r"3720-\d{3}.*",
+            r"Rua\s+.*",
+            r"Zona\s+Industrial.*",
+            r"Santiago\s+da\s+Riba.*",
+            r"Local\s+de\s+Entrega.*"
+        ]
+        cleaned = text
+        for pat in patterns_to_cut:
+            cleaned = re.sub(pat, "", cleaned, flags=re.IGNORECASE)
+        return normalize_space(cleaned)
+
     current_item = None
     for page_text in pages_text:
         for raw_line in page_text.splitlines():
@@ -261,9 +276,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
             item_match = ITEM_RE.match(raw_line)
             if item_match:
                 if current_item:
-                    # Limpeza agressiva e definitiva de moradas na descrição
-                    desc_limpa = re.split(r"(Ouriçosa|3720-592|3720-502)", current_item["Descrição"], flags=re.IGNORECASE)[0]
-                    current_item["Descrição"] = normalize_space(desc_limpa)
+                    current_item["Descrição"] = clean_description(current_item["Descrição"])
                     rows.append(current_item)
 
                 item_no, code, description, qty, unit, due_date = item_match.groups()
@@ -272,7 +285,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                     "Nº encomenda": order_number,
                     "Data documento": document_date,
                     "Art./Serv.": code.strip(),
-                    "Descrição": normalize_space(description),
+                    "Descrição": clean_description(description),
                     "Qtd. Doc.": qty.replace(",", "."),
                     "Und.": unit,
                     "Molde e componente": "",
@@ -318,13 +331,12 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                             )
                         )
                     ):
-                        current_item["Descrição"] = normalize_space(
+                        current_item["Descrição"] = clean_description(
                             current_item["Descrição"] + " " + line
                         )
 
     if current_item:
-        desc_limpa = re.split(r"(Ouriçosa|3720-592|3720-502)", current_item["Descrição"], flags=re.IGNORECASE)[0]
-        current_item["Descrição"] = normalize_space(desc_limpa)
+        current_item["Descrição"] = clean_description(current_item["Descrição"])
         rows.append(current_item)
 
     if not order_number:
