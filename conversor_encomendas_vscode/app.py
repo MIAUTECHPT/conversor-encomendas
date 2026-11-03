@@ -228,11 +228,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
     warnings = []
     try:
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            pages_text = []
-            for page in pdf.pages:
-                # Extrai o texto da página
-                txt = page.extract_text() or ""
-                pages_text.append(txt)
+            pages_text = [(page.extract_text() or "") for page in pdf.pages]
     except Exception as exc:
         return [], [f"{filename}: não foi possível abrir o PDF ({exc})."]
 
@@ -255,34 +251,20 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                 supplier = part.upper()
                 break
 
-    def clean_final_desc(desc: str) -> str:
-        # Remove Ouriçosa, 3720-592, UL isolado e qualquer lixo de morada que tenha colado
-        desc = re.split(r"\b(Ouriçosa|3720-592|3720-502|Santiago da Riba|Oliveira de Azeméis)\b", desc, flags=re.IGNORECASE)[0]
-        desc = re.sub(r"\bUL\b\s*$", "", desc, flags=re.IGNORECASE)
-        return normalize_space(desc)
-
-    current_item = None
-    for page_text in pages_text:
+    # Vamos processar por página para marcar claramente o último item de cada página
+    for page_idx, page_text in enumerate(pages_text):
+        page_items = []
+        current_item = None
+        
         for raw_line in page_text.splitlines():
             line = normalize_space(raw_line)
             if not line:
                 continue
 
-            # Se for linha de cabeçalho, rodapé ou morada, IGNORA IMEDIATAMENTE
-            line_low = line.lower()
-            if any(term in line_low for term in [
-                "ouriçosa", "3720-592", "3720-502", "santiago da riba", 
-                "ulmolde - moldes", "capital social", "conservatória do registo",
-                "geral@ulmolde", "simoldes.com", "processado por computador",
-                "nota de encomenda", "local de entrega", "compra sustentável"
-            ]):
-                continue
-
             item_match = ITEM_RE.match(raw_line)
             if item_match:
                 if current_item:
-                    current_item["Descrição"] = clean_final_desc(current_item["Descrição"])
-                    rows.append(current_item)
+                    page_items.append(current_item)
 
                 item_no, code, description, qty, unit, due_date = item_match.groups()
                 current_item = {
@@ -297,6 +279,8 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                     "Dt. Prev. Entrega": due_date,
                     "PDF origem": filename,
                     "_Item PDF": item_no,
+                    "Pág.": page_idx + 1,
+                    "⚠️ Verificar Último": "Normal"
                 }
                 continue
 
@@ -324,14 +308,19 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                         not re.match(r"^\s*\d+\s+\d{6,}\s+", raw_line)
                         and ":" not in line
                         and len(line) <= 45
+                        and not any(term in line.lower() for term in ["ouriçosa", "3720-592", "ulmolde", "capital social"])
                     ):
                         current_item["Descrição"] = normalize_space(
                             current_item["Descrição"] + " " + line
                         )
 
-    if current_item:
-        current_item["Descrição"] = clean_final_desc(current_item["Descrição"])
-        rows.append(current_item)
+        if current_item:
+            page_items.append(current_item)
+
+        # Se houver artigos nesta página, marca o último com um alerta visual
+        if page_items:
+            page_items[-1]["⚠️ Verificar Último"] = "⚠️ ÚLTIMO DA PÁGINA (Atenção)"
+            rows.extend(page_items)
 
     if not order_number:
         warnings.append(f"{filename}: não consegui identificar o número da encomenda.")
