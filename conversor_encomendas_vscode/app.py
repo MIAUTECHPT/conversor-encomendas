@@ -223,222 +223,116 @@ def load_equivalences() -> pd.DataFrame:
         return pd.DataFrame(columns=["Descricao_Key", "Correspondente_Excel", "P.U."])
 
 
-
-
-
 def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
-
     rows = []
-
     warnings = []
-
     try:
-
         with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-
             pages_text = [(page.extract_text() or "") for page in pdf.pages]
-
     except Exception as exc:
-
         return [], [f"{filename}: não foi possível abrir o PDF ({exc})."]
 
-
-
     full_text = "\n".join(pages_text)
-
     order_match = ORDER_RE.search(full_text)
-
     order_number = f"ENF {normalize_space(order_match.group(1))}" if order_match else ""
-
     date_match = DATE_RE.search(full_text)
-
     document_date = date_match.group(1) if date_match else ""
 
-
-
     supplier = "Empresa"
-
     clean_filename = filename.upper()
-
-   
-
+    
     enf_match = re.search(r"ENF[-_]?([A-Z]+)[-_]?\d+", clean_filename)
-
     if enf_match:
-
         supplier = enf_match.group(1).strip()
-
     else:
-
         parts = re.split(r"[-_\s]+", Path(filename).stem)
-
         for part in parts:
-
             if part.isalpha() and len(part) <= 5:
-
                 supplier = part.upper()
-
                 break
 
-
-
     current_item = None
-
     for page_text in pages_text:
-
         for raw_line in page_text.splitlines():
-
             line = normalize_space(raw_line)
-
             if not line:
-
                 continue
 
-
-
             item_match = ITEM_RE.match(raw_line)
-
             if item_match:
-
                 if current_item:
-
+                    # Limpeza agressiva e definitiva de moradas na descrição
+                    desc_limpa = re.split(r"(Ouriçosa|3720-592|3720-502)", current_item["Descrição"], flags=re.IGNORECASE)[0]
+                    current_item["Descrição"] = normalize_space(desc_limpa)
                     rows.append(current_item)
 
                 item_no, code, description, qty, unit, due_date = item_match.groups()
-
                 current_item = {
-
                     "Fornecedor": supplier,
-
                     "Nº encomenda": order_number,
-
                     "Data documento": document_date,
-
                     "Art./Serv.": code.strip(),
-
                     "Descrição": normalize_space(description),
-
                     "Qtd. Doc.": qty.replace(",", "."),
-
                     "Und.": unit,
-
                     "Molde e componente": "",
-
                     "Dt. Prev. Entrega": due_date,
-
                     "PDF origem": filename,
-
                     "_Item PDF": item_no,
-
                 }
-
                 continue
 
-
-
             if current_item:
-
-                # 1. Procura por "Molde: ..., Compon.: ..."
-
                 mould_match = re.search(
-
                     r"Molde\s*:\s*([^,]+)\s*,\s*Compon\.?\s*:\s*(\S+)",
-
                     line,
-
                     re.IGNORECASE,
-
                 )
-
                 if mould_match:
-
                     current_item["Molde e componente"] = (
-
                         f"Molde: {mould_match.group(1).strip()}, "
-
                         f"Compon.: {mould_match.group(2).strip()}"
-
                     )
-
                 else:
-
-                    # 2. Procura por "Estação Bancada: ..."
-
                     station_match = re.search(r"Estação\s+Bancada\s*:\s*(.+)", line, re.IGNORECASE)
-
                     if station_match:
-
                         station_val = station_match.group(1).strip()
-
                         existing_mould = current_item.get("Molde e componente", "")
-
                         if existing_mould:
-
                             current_item["Molde e componente"] = f"{existing_mould} | Estação: {station_val}"
-
                         else:
-
                             current_item["Molde e componente"] = f"Estação: {station_val}"
-
                     elif (
-
                         not re.match(r"^\s*\d+\s+\d{6,}\s+", raw_line)
-
                         and ":" not in line
-
                         and len(line) <= 45
-
                         and not any(
-
                             token in line.lower()
-
                             for token in (
-
                                 "nota de encomenda", "processado por computador", "página",
-
                                 "total ", "mda -", "conservatória", "rua ", "zona industrial",
-
                                 "tel.:", "e-mail:", "original", "data ", "fornecedor", "contribuinte",
-
                                 "pagamento", "moeda", "item código", "atenção", "tratar com",
-
-                                "local de entrega", "compra sustentável", "3720-502", "santiago da riba",
-
-                                "valor sujeito", "taxa valor", "normal", "desc. doc", "efeitos imediatos"
-
+                                "local de entrega", "compra sustentável", "3720-502", "3720-592", 
+                                "santiago da riba", "ouriçosa", "ul ", "valor sujeito", "taxa valor"
                             )
-
                         )
-
                     ):
-
                         current_item["Descrição"] = normalize_space(
-
                             current_item["Descrição"] + " " + line
-
                         )
-
-
 
     if current_item:
-
+        desc_limpa = re.split(r"(Ouriçosa|3720-592|3720-502)", current_item["Descrição"], flags=re.IGNORECASE)[0]
+        current_item["Descrição"] = normalize_space(desc_limpa)
         rows.append(current_item)
 
-
-
     if not order_number:
-
         warnings.append(f"{filename}: não consegui identificar o número da encomenda.")
-
     if not rows:
-
         warnings.append(f"{filename}: não foram encontrados artigos no formato esperado.")
 
-
-
     return rows, warnings
-
-
 
 
 
