@@ -251,6 +251,12 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                 supplier = part.upper()
                 break
 
+    def finalize_description(desc: str) -> str:
+        # Trunca a descrição se apanhar Ouriçosa, 3720-592 ou UL isolado no fim
+        clean_desc = re.split(r"\b(Ouriçosa|3720-592|3720-502)\b", desc, flags=re.IGNORECASE)[0]
+        clean_desc = re.sub(r"\bUL\b\s*$", "", clean_desc, flags=re.IGNORECASE)
+        return normalize_space(clean_desc)
+
     current_item = None
     for page_text in pages_text:
         for raw_line in page_text.splitlines():
@@ -261,6 +267,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
             item_match = ITEM_RE.match(raw_line)
             if item_match:
                 if current_item:
+                    current_item["Descrição"] = finalize_description(current_item["Descrição"])
                     rows.append(current_item)
 
                 item_no, code, description, qty, unit, due_date = item_match.groups()
@@ -321,6 +328,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
                         )
 
     if current_item:
+        current_item["Descrição"] = finalize_description(current_item["Descrição"])
         rows.append(current_item)
 
     if not order_number:
