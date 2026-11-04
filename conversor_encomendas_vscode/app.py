@@ -270,23 +270,28 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         temp_df[qty_col].astype(str).str.replace(",", "."), errors="coerce"
     ).fillna(0)
     
-    # 2. Garantir que a coluna de data existe
-    if "Dt. Prev. Entrega" not in temp_df.columns:
-        temp_df["Dt. Prev. Entrega"] = ""
-    else:
-        temp_df["Dt. Prev. Entrega"] = temp_df["Dt. Prev. Entrega"].astype(str).str.strip()
-    
-    # 3. Agrupamento incluindo a Data Prevista de Entrega (escolhendo a mais antiga com 'min')
+    # 2. Agrupamento base (Quantidade total por Artigo, Descrição e Unidade)
     pivot_df = temp_df.groupby(
         ["Art./Serv.", "Descrição", "Und."], 
         as_index=False
     ).agg({
-        "Qtd_Num": "sum",
-        "Dt. Prev. Entrega": "min"
+        "Qtd_Num": "sum"
     })
     
     pivot_df = pivot_df.rename(columns={"Qtd_Num": "Quantidade Total"})
     
+    # 3. Cruzamento direto da Data Prevista de Entrega mais antiga por Código de Artigo
+    if "Dt. Prev. Entrega" in temp_df.columns:
+        temp_df["Dt. Prev. Entrega Clean"] = temp_df["Dt. Prev. Entrega"].astype(str).str.strip()
+        # Calcula a data mínima (mais antiga) para cada código de artigo
+        min_dates = temp_df[temp_df["Dt. Prev. Entrega Clean"].ne("") & temp_df["Dt. Prev. Entrega Clean"].ne("nan")].groupby("Art./Serv.")["Dt. Prev. Entrega Clean"].min().reset_index()
+        min_dates = min_dates.rename(columns={"Dt. Prev. Entrega Clean": "Dt. Prev. Entrega"})
+        
+        # Junta a data ao pivot_df pelo código do artigo
+        pivot_df = pd.merge(pivot_df, min_dates, on="Art./Serv.", how="left")
+    else:
+        pivot_df["Dt. Prev. Entrega"] = ""
+
     # 4. Cruzamento com a tabela de equivalências (Preços e Correspondências)
     df_eq = load_equivalences()
     
@@ -322,7 +327,7 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         "P.U.": "P.U. (€)"
     })
 
-    # 6. Ordem exata das colunas garantindo que a Dt. Prev. Entrega fica na Coluna H
+    # 6. Ordem exata das colunas garantindo a Dt. Prev. Entrega na Coluna H
     cols_order = [
         "Código Artigo",
         "Descrição (PDF)",
@@ -334,7 +339,6 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         "Dt. Prev. Entrega"  # Fica exatamente na Coluna H
     ]
     
-    # Garantir que todas as colunas da ordem existem no dataframe
     for col in cols_order:
         if col not in pivot_df.columns:
             pivot_df[col] = ""
