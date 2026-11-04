@@ -264,37 +264,34 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
     temp_df = df.copy()
     temp_df.columns = [c.strip() for c in temp_df.columns]
     
-    # Garantir que a quantidade é numérica
+    # 1. Garantir que a quantidade é numérica
     qty_col = "Qtd. Doc." if "Qtd. Doc." in temp_df.columns else temp_df.columns[5]
     temp_df["Qtd_Num"] = pd.to_numeric(
         temp_df[qty_col].astype(str).str.replace(",", "."), errors="coerce"
     ).fillna(0)
     
-    # Apontar diretamente para a coluna correta da data de entrega
-    date_col = "Dt. Prev. Entrega" if "Dt. Prev. Entrega" in temp_df.columns else None
-    if not date_col:
-        date_col = next((c for c in temp_df.columns if "prev" in c.lower() or ("entrega" in c.lower() and "documento" not in c.lower())), None)
-    
-    if date_col:
-        temp_df["Data_Entrega_Clean"] = temp_df[date_col].astype(str).str.strip()
+    # 2. Garantir que a coluna de data existe e está limpa
+    if "Dt. Prev. Entrega" in temp_df.columns:
+        temp_df["Dt. Prev. Entrega Clean"] = temp_df["Dt. Prev. Entrega"].astype(str).str.strip()
     else:
-        temp_df["Data_Entrega_Clean"] = ""
+        temp_df["Dt. Prev. Entrega Clean"] = ""
     
-    # Agrupamento para a Tabela Dinâmica / Resumo (Soma quantidade e escolhe a data mais antiga com 'min')
+    # 3. Agrupamento para a Tabela Dinâmica / Resumo
+    # Soma a quantidade e vai buscar a data mais antiga com 'min'
     pivot_df = temp_df.groupby(
         ["Art./Serv.", "Descrição", "Und."], 
         as_index=False
     ).agg({
         "Qtd_Num": "sum",
-        "Data_Entrega_Clean": lambda x: sorted([d for d in x if d and d.lower() != "nan" and d.lower() != "nat"])[0] if any(d for d in x if d and d.lower() != "nan" and d.lower() != "nat") else ""
+        "Dt. Prev. Entrega Clean": lambda x: sorted([d for d in x if d and d.lower() != "nan" and d.lower() != "nat" and d != ""])[0] if any(d for d in x if d and d.lower() != "nan" and d.lower() != "nat" and d != "") else ""
     })
     
     pivot_df = pivot_df.rename(columns={
         "Qtd_Num": "Quantidade Total",
-        "Data_Entrega_Clean": "Dt. Prev. Entrega"
+        "Dt. Prev. Entrega Clean": "Dt. Prev. Entrega"
     })
     
-    # Cruzamento com a tabela de equivalências
+    # Cruzamento com a tabela de equivalências (Preços e Correspondências)
     df_eq = load_equivalences()
     
     if not df_eq.empty:
@@ -328,7 +325,7 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         "P.U.": "P.U. (€)"
     })
 
-    # Ordem exata para garantir que a data de entrega fica na Coluna H
+    # Ordem exata das colunas para colocar a Dt. Prev. Entrega exatamente na Coluna H
     cols_order = [
         "Código Artigo",
         "Descrição (PDF)",
@@ -340,6 +337,10 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         "Dt. Prev. Entrega"  # Coluna H
     ]
     
+    # Se por algum motivo a coluna Dt. Prev. Entrega estivesse vazia, criamos com string vazia para não falhar
+    if "Dt. Prev. Entrega" not in pivot_df.columns:
+        pivot_df["Dt. Prev. Entrega"] = ""
+
     pivot_df = pivot_df[[c for c in cols_order if c in pivot_df.columns]]
     pivot_df = pivot_df.sort_values(by="Quantidade Total", ascending=False).reset_index(drop=True)
 
