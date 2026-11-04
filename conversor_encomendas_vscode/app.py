@@ -256,33 +256,43 @@ def make_excel(df: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 
+print("COLUNAS DISPONÍVEIS:", df.columns.tolist())
+
 def make_pivot_excel(df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
     
     temp_df = df.copy()
     
+    # 1. Normalizar nomes das colunas para evitar conflitos de espaços
+    temp_df.columns = [c.strip() for c in temp_df.columns]
+    
     # Garantir que a quantidade é numérica
+    qty_col = "Qtd. Doc." if "Qtd. Doc." in temp_df.columns else temp_df.columns[5]
     temp_df["Qtd_Num"] = pd.to_numeric(
-        temp_df["Qtd. Doc."].astype(str).str.replace(",", "."), errors="coerce"
+        temp_df[qty_col].astype(str).str.replace(",", "."), errors="coerce"
     ).fillna(0)
     
-    # Garantir que a coluna Dt. Prev. Entrega existe e não tem valores estranhos
-    if "Dt. Prev. Entrega" not in temp_df.columns:
-        temp_df["Dt. Prev. Entrega"] = ""
-    else:
-        temp_df["Dt. Prev. Entrega"] = temp_df["Dt. Prev. Entrega"].astype(str).str.strip()
+    # 2. Identificar dinamicamente a coluna de data prevista de entrega
+    date_col = next((c for c in temp_df.columns if "prev" in c.lower() or "entrega" in c.lower() or "data" in c.lower()), None)
     
-    # Agrupamento para a Tabela Dinâmica / Resumo
-    # Agrupa por Artigo, Descrição e Unidade, calculando a Soma da Quantidade e a Menor Data (mais antiga)
+    if date_col:
+        temp_df["Data_Entrega_Clean"] = temp_df[date_col].astype(str).str.strip()
+    else:
+        temp_df["Data_Entrega_Clean"] = ""
+    
+    # 3. Agrupamento para a Tabela Dinâmica / Resumo
     pivot_df = temp_df.groupby(
         ["Art./Serv.", "Descrição", "Und."], 
         as_index=False
     ).agg({
         "Qtd_Num": "sum",
-        "Dt. Prev. Entrega": lambda x: sorted([d for d in x if d and d.lower() != "nan"])[0] if any(d for d in x if d and d.lower() != "nan") else ""
+        "Data_Entrega_Clean": lambda x: sorted([d for d in x if d and d.lower() != "nan"])[0] if any(d for d in x if d and d.lower() != "nan") else ""
     })
     
-    pivot_df = pivot_df.rename(columns={"Qtd_Num": "Quantidade Total"})
+    pivot_df = pivot_df.rename(columns={
+        "Qtd_Num": "Quantidade Total",
+        "Data_Entrega_Clean": "Dt. Prev. Entrega"
+    })
     
     # Cruzamento com a tabela de equivalências
     df_eq = load_equivalences()
@@ -301,7 +311,7 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         pivot_df["Correspondente_Fornecedor"] = pivot_df["Correspondente_Excel"].apply(
             lambda x: x if pd.notna(x) and str(x).strip() != "" else None
         )
-        pivot_df["Correspondente_Fornecedor"] = pivot_df["Correspondente_Fornecedor"].fillna(pivot_df["Descrição"])
+        pivot_df["Correspondente_Fornecedor"] = pivot_df["Correspondente_Excel"].fillna(pivot_df["Descrição"])
         
         pivot_df["P.U."] = pd.to_numeric(pivot_df["P.U."], errors="coerce").fillna(0.0)
         pivot_df = pivot_df.drop(columns=["Desc_Key", "Descricao_Key", "Correspondente_Excel"], errors="ignore")
@@ -311,16 +321,14 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
 
     pivot_df["Preço Total (€)"] = pivot_df["Quantidade Total"] * pivot_df["P.U."]
     
-    # Mapeamento e renomeação das colunas finais
+    # Mapeamento final para alinhar na Coluna H
     pivot_df = pivot_df.rename(columns={
         "Art./Serv.": "Código Artigo",
         "Descrição": "Descrição (PDF)",
         "Correspondente_Fornecedor": "Correspondente (Fornecedor)",
-        "P.U.": "P.U. (€)",
-        "Dt. Prev. Entrega": "Dt. Prev. Entrega"
+        "P.U.": "P.U. (€)"
     })
 
-    # Ordem exata das colunas: A Dt. Prev. Entrega vai para a Coluna H
     cols_order = [
         "Código Artigo",
         "Descrição (PDF)",
@@ -329,10 +337,9 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
         "Und.",
         "P.U. (€)",
         "Preço Total (€)",
-        "Dt. Prev. Entrega"  # Coluna H
+        "Dt. Prev. Entrega"  # Fica garantidamente na Coluna H
     ]
     
-    # Reordenar mantendo as colunas existentes
     pivot_df = pivot_df[[c for c in cols_order if c in pivot_df.columns]]
     pivot_df = pivot_df.sort_values(by="Quantidade Total", ascending=False).reset_index(drop=True)
 
@@ -346,56 +353,3 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
             ws.column_dimensions[column_cells[0].column_letter].width = min(max(max_len + 2, 12), 65)
             
     return output.getvalue()
-# --- INTERFACE PRINCIPAL DO STREAMLIT ---
-st.title("🏷️ Conversor de Notas de Encomenda")
-st.write("PDF -> Excel consolidado -> Tabela Dinâmica (Resumo)")
-
-uploaded_files = st.file_uploader(
-    "Seleciona uma ou várias notas de encomenda em PDF",
-    type=["pdf"],
-    accept_multiple_files=True
-)
-
-if uploaded_files:
-    all_rows = []
-    all_warnings = []
-
-    for pdf_file in uploaded_files:
-        file_bytes = pdf_file.read()
-        rows, warnings = parse_pdf(file_bytes, pdf_file.name)
-        all_rows.extend(rows)
-        all_warnings.extend(warnings)
-
-    if all_warnings:
-        for w in all_warnings:
-            st.warning(w)
-
-    if all_rows:
-        df = pd.DataFrame(all_rows)
-
-        st.subheader("1. Confirmar, Corrigir e Ordenar os Dados")
-        st.write(f"Artigos encontrados: {len(df)}")
-
-        # Tabela editável diretamente na interface
-        edited_df = st.data_editor(df, use_container_width=True, height=400)
-
-        st.subheader("2. Exportar")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            excel_bytes = make_excel(edited_df)
-            st.download_button(
-                label="📥 Descarregar Excel Consolidado",
-                data=excel_bytes,
-                file_name="encomendas_consolidadas.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
-
-        with col2:
-            pivot_excel_bytes = make_pivot_excel(edited_df)
-            st.download_button(
-                label="📊 Descarregar Tabela Dinâmica (Resumo)",
-                data=pivot_excel_bytes,
-                file_name="resumo_tabela_dinamica.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
