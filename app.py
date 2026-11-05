@@ -17,29 +17,26 @@ from reportlab.pdfgen import canvas
 def check_password():
     """Retorna True se a palavra-passe estiver correta."""
     def password_entered():
-        if st.session_state["password"] == "moldes2026":  # Podes alterar aqui a palavra-passe que quiseres!
+        if st.session_state["password"] == "moldes2026":  # Palavra-passe de acesso
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # Remove a password da memória por segurança
+            del st.session_state["password"]  # Remove a password da memória
         else:
             st.session_state["password_correct"] = False
 
     if "password_correct" not in st.session_state:
-        # Primeiro acesso: pede a password
         st.title("🔒 Acesso Restrito")
         st.text_input("Introduz a palavra-passe para aceder à aplicação:", type="password", on_change=password_entered, key="password")
         return False
     elif not st.session_state["password_correct"]:
-        # Password incorreta
         st.title("🔒 Acesso Restrito")
         st.text_input("Introduz a palavra-passe para aceder à aplicação:", type="password", on_change=password_entered, key="password")
         st.error("😕 Palavra-passe incorreta. Tenta novamente.")
         return False
     else:
-        # Autenticado com sucesso
         return True
 
 if not check_password():
-    st.stop()  # Impede que o resto da aplicação seja executado se não houver login válido
+    st.stop()
 
 # --- CONFIGURAÇÃO E VARIÁVEIS DA APLICAÇÃO ---
 APP_DIR = Path(__file__).resolve().parent
@@ -102,7 +99,6 @@ def load_equivalences() -> pd.DataFrame:
             return pd.DataFrame(columns=["Descricao_Key", "Correspondente_Excel", "P.U."])
         
         sub_df = sub_df.dropna(subset=["Descricao_Excel"])
-        
         sub_df["Descricao_Key"] = sub_df["Descricao_Excel"].astype(str).str.lower().str.strip()
         sub_df["Correspondente_Excel"] = sub_df["Correspondente_Excel"].fillna("").astype(str).str.strip()
         sub_df["P.U."] = pd.to_numeric(
@@ -130,19 +126,16 @@ def parse_pdf(file_bytes: bytes, filename: str) -> tuple[list[dict], list[str]]:
     date_match = DATE_RE.search(full_text)
     document_date = date_match.group(1) if date_match else ""
 
-    # Extração direta do nome da empresa a partir do nome do ficheiro (ex: ENF-IMA-101139.pdf -> IMA)
     supplier = "Empresa"
     clean_filename = filename.upper()
     
-    # Procura pelo padrão ENF-[EMPRESA]-[NUMERO] ou similar no nome do ficheiro
     enf_match = re.search(r"ENF[-_]?([A-Z]+)[-_]?\d+", clean_filename)
     if enf_match:
         supplier = enf_match.group(1).strip()
     else:
-        # Alternativa caso o nome do ficheiro tenha outra estrutura (ex: IMA_101139.pdf)
         parts = re.split(r"[-_\s]+", Path(filename).stem)
         for part in parts:
-            if part.isalpha() and len(part) <= 5:  # Identifica siglas como IMA, IGM, etc.
+            if part.isalpha() and len(part) <= 5:
                 supplier = part.upper()
                 break
 
@@ -231,7 +224,6 @@ def make_excel(df: pd.DataFrame) -> bytes:
 
 def make_pivot_excel(df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
-    
     temp_df = df.copy()
     temp_df["Qtd_Num"] = pd.to_numeric(
         temp_df["Qtd. Doc."].astype(str).str.replace(",", "."), errors="coerce"
@@ -244,7 +236,6 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
     
     if not df_eq.empty:
         pivot_df["Desc_Key"] = pivot_df["Descrição"].astype(str).str.lower().str.strip()
-        
         pivot_df = pd.merge(
             pivot_df,
             df_eq,
@@ -252,12 +243,10 @@ def make_pivot_excel(df: pd.DataFrame) -> bytes:
             right_on="Descricao_Key",
             how="left"
         )
-        
         pivot_df["Correspondente_Fornecedor"] = pivot_df["Correspondente_Excel"].apply(
             lambda x: x if pd.notna(x) and str(x).strip() != "" else None
         )
         pivot_df["Correspondente_Fornecedor"] = pivot_df["Correspondente_Fornecedor"].fillna(pivot_df["Descrição"])
-        
         pivot_df["P.U."] = pd.to_numeric(pivot_df["P.U."], errors="coerce").fillna(0.0)
         pivot_df = pivot_df.drop(columns=["Desc_Key", "Descricao_Key", "Correspondente_Excel"], errors="ignore")
     else:
@@ -375,15 +364,12 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
         molde_val = str(row.get("Molde", "") or "")
         comps_val = str(row.get("Componentes", "") or "")
 
-        # Monta a linha de cabeçalho ex: "IGM — Encomenda: ENF A/101139"
         if supplier_name and supplier_name != "Fornecedor Desconhecido":
             header_text = f"{supplier_name} — Encomenda: {order_no}" if order_no else supplier_name
         else:
             header_text = f"Encomenda: {order_no}" if order_no else ""
 
-        payload = {
-            "Contribuinte Fornecedor": "PT-515690155"
-        }
+        payload = {"Contribuinte Fornecedor": "PT-515690155"}
         if supplier_name:
             payload["Fornecedor"] = supplier_name
         if order_no:
@@ -417,7 +403,6 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
 
         desc_val = str(row.get("Descrição", "") or "")
 
-        # 1. Cabeçalho com Empresa e Encomenda (com corte automático se for comprido)
         if header_text:
             c.setFont("Helvetica-Bold", 8.5)
             avail_h = max(10, max_text_width)
@@ -427,7 +412,6 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
             c.drawString(text_x, text_y, shown_h)
             text_y -= 4.5 * mm
 
-        # 2. Descrição (até 2 linhas)
         if desc_val:
             lbl = "Descrição:"
             c.setFont("Helvetica-Bold", 9)
@@ -459,7 +443,6 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
             else:
                 text_y -= 1 * mm
 
-        # 3. Quantidade
         if qtd_val:
             lbl = "Quantidade:"
             c.setFont("Helvetica-Bold", 9)
@@ -469,7 +452,6 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
             c.drawString(text_x + p_w, text_y, qtd_val)
             text_y -= 4.5 * mm
 
-        # 4. Molde (Linha dedicada)
         if molde_val and molde_val != "N/D":
             lbl_m = "Molde:"
             c.setFont("Helvetica-Bold", 9)
@@ -484,7 +466,6 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
             c.drawString(text_x + p_wm, text_y, shown_m)
             text_y -= 4.2 * mm
 
-        # 5. Componentes (Linha seguinte dedicada, se existirem)
         if comps_val:
             lbl_c = "Comp.:"
             c.setFont("Helvetica-Bold", 9)
@@ -506,126 +487,200 @@ def make_labels_pdf(df: pd.DataFrame, layout_choice: str) -> bytes:
     return output.getvalue()
 
 
-# --- INTERFACE PRINCIPAL ---
-st.set_page_config(page_title="Conversor de Encomendas", page_icon="🏷️", layout="wide")
-st.title("Conversor de notas de encomenda")
-st.caption("PDF → Excel consolidado → etiquetas A4 com QR Code.")
+# --- INTERFACE PRINCIPAL COM SEPARADORES ---
+st.set_page_config(page_title="Sistema de Encomendas & Equivalências", page_icon="🏷️", layout="wide")
 
-st.sidebar.header("Configuração de Impressão")
-layout_option = st.sidebar.radio(
-    "Escolha o formato das etiquetas:",
-    (
-        "2x5 (10 por página)",
-        "2x7 (14 por página)",
-        "2x8 (16 por página)"
-    ),
-    index=2
-)
+tab1, tab2 = st.tabs(["📄 Processador de PDFs (Etiquetas/Consolidado)", "📊 Conversor Ficheiro Excel (Formato Ficheiro 2)"])
 
-uploads = st.file_uploader("Seleciona uma ou várias notas de encomenda em PDF", type=["pdf"], accept_multiple_files=True)
+# --- TAB 1: PROCESSADOR DE PDFS ---
+with tab1:
+    st.title("Conversor de notas de encomenda")
+    st.caption("PDF → Excel consolidado → etiquetas A4 com QR Code.")
 
-if "data" not in st.session_state:
-    st.session_state.data = None
-
-if uploads:
-    all_rows, all_warnings = [], []
-    for uploaded in uploads:
-        rows, warnings = parse_pdf(uploaded.getvalue(), uploaded.name)
-        all_rows.extend(rows)
-        all_warnings.extend(warnings)
-
-    if all_rows:
-        df = pd.DataFrame(all_rows)
-        df = df.sort_values(
-            by=["Fornecedor", "Nº encomenda", "_Item PDF", "Art./Serv."],
-            kind="stable",
-            na_position="last",
-        ).reset_index(drop=True)
-        st.session_state.data = df
-    else:
-        st.session_state.data = pd.DataFrame(columns=COLUMNS + ["_Item PDF"])
-
-    for warning in all_warnings:
-        st.warning(warning)
-
-df = st.session_state.data
-if df is not None and len(df):
-    st.subheader("1. Confirmar, Corrigir e Ordenar os Dados (Personalizado)")
-    st.write(f"Artigos encontrados: **{len(df)}**")
-    
-    with st.expander("⚙️ Opções de Ordenação Avançada (Até 3 Níveis)", expanded=False):
-        available_cols = [col for col in COLUMNS if col in df.columns]
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            sort_1 = st.selectbox("1º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=2 if "Nº encomenda" in available_cols else 0)
-            asc_1 = st.radio("Direção (1º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_1") == "Ascendente (A-Z)"
-        with c2:
-            sort_2 = st.selectbox("2º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=4 if "Molde e componente" in available_cols else 0)
-            asc_2 = st.radio("Direção (2º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_2") == "Ascendente (A-Z)"
-
-        c3, c4 = st.columns(2)
-        with c3:
-            sort_3 = st.selectbox("3º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=0)
-            asc_3 = st.radio("Direção (3º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_3") == "Ascendente (A-Z)"
-
-    sort_cols_list = []
-    sort_asc_list = []
-    
-    if sort_1 != "(Nenhum)":
-        sort_cols_list.append(sort_1)
-        sort_asc_list.append(asc_1)
-    if sort_2 != "(Nenhum)" and sort_2 not in sort_cols_list:
-        sort_cols_list.append(sort_2)
-        sort_asc_list.append(asc_2)
-    if sort_3 != "(Nenhum)" and sort_3 not in sort_cols_list:
-        sort_cols_list.append(sort_3)
-        sort_asc_list.append(asc_3)
-
-    if not sort_cols_list:
-        sort_cols_list = ["Fornecedor", "Nº encomenda", "_Item PDF"]
-        sort_asc_list = [True, True, True]
-
-    df_sorted = df.sort_values(by=sort_cols_list, ascending=sort_asc_list, kind="stable").reset_index(drop=True)
-
-    edited = st.data_editor(
-        df_sorted,
-        use_container_width=True,
-        num_rows="dynamic",
-        column_config={
-            "_Item PDF": st.column_config.NumberColumn("Item PDF", disabled=True),
-            "Qtd. Doc.": st.column_config.TextColumn("Qtd. Doc."),
-        },
-        key="orders_editor",
+    st.sidebar.header("Configuração de Impressão")
+    layout_option = st.sidebar.radio(
+        "Escolha o formato das etiquetas:",
+        (
+            "2x5 (10 por página)",
+            "2x7 (14 por página)",
+            "2x8 (16 por página)"
+        ),
+        index=2
     )
-    st.session_state.data = edited
 
-    st.subheader("2. Exportar")
-    col_ex1, col_ex2, col_ex3 = st.columns(3)
-    with col_ex1:
-        excel_bytes = make_excel(edited)
-        st.download_button(
-            "Excel Consolidado",
-            data=excel_bytes,
-            file_name="encomendas_consolidadas.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    uploads = st.file_uploader("Seleciona uma ou várias notas de encomenda em PDF", type=["pdf"], accept_multiple_files=True)
+
+    if "data" not in st.session_state:
+        st.session_state.data = None
+
+    if uploads:
+        all_rows, all_warnings = [], []
+        for uploaded in uploads:
+            rows, warnings = parse_pdf(uploaded.getvalue(), uploaded.name)
+            all_rows.extend(rows)
+            all_warnings.extend(warnings)
+
+        if all_rows:
+            df = pd.DataFrame(all_rows)
+            df = df.sort_values(
+                by=["Fornecedor", "Nº encomenda", "_Item PDF", "Art./Serv."],
+                kind="stable",
+                na_position="last",
+            ).reset_index(drop=True)
+            st.session_state.data = df
+        else:
+            st.session_state.data = pd.DataFrame(columns=COLUMNS + ["_Item PDF"])
+
+        for warning in all_warnings:
+            st.warning(warning)
+
+    df = st.session_state.data
+    if df is not None and len(df):
+        st.subheader("1. Confirmar, Corrigir e Ordenar os Dados (Personalizado)")
+        st.write(f"Artigos encontrados: **{len(df)}**")
+        
+        with st.expander("⚙️ Opções de Ordenação Avançada (Até 3 Níveis)", expanded=False):
+            available_cols = [col for col in COLUMNS if col in df.columns]
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                sort_1 = st.selectbox("1º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=2 if "Nº encomenda" in available_cols else 0)
+                asc_1 = st.radio("Direção (1º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_1") == "Ascendente (A-Z)"
+            with c2:
+                sort_2 = st.selectbox("2º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=4 if "Molde e componente" in available_cols else 0)
+                asc_2 = st.radio("Direção (2º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_2") == "Ascendente (A-Z)"
+
+            c3, c4 = st.columns(2)
+            with c3:
+                sort_3 = st.selectbox("3º Critério de Ordenação", options=["(Nenhum)"] + available_cols, index=0)
+                asc_3 = st.radio("Direção (3º)", options=["Ascendente (A-Z)", "Descendente (Z-A)"], horizontal=True, key="asc_3") == "Ascendente (A-Z)"
+
+        sort_cols_list = []
+        sort_asc_list = []
+        
+        if sort_1 != "(Nenhum)":
+            sort_cols_list.append(sort_1)
+            sort_asc_list.append(asc_1)
+        if sort_2 != "(Nenhum)" and sort_2 not in sort_cols_list:
+            sort_cols_list.append(sort_2)
+            sort_asc_list.append(asc_2)
+        if sort_3 != "(Nenhum)" and sort_3 not in sort_cols_list:
+            sort_cols_list.append(sort_3)
+            sort_asc_list.append(asc_3)
+
+        if not sort_cols_list:
+            sort_cols_list = ["Fornecedor", "Nº encomenda", "_Item PDF"]
+            sort_asc_list = [True, True, True]
+
+        df_sorted = df.sort_values(by=sort_cols_list, ascending=sort_asc_list, kind="stable").reset_index(drop=True)
+
+        edited = st.data_editor(
+            df_sorted,
             use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "_Item PDF": st.column_config.NumberColumn("Item PDF", disabled=True),
+                "Qtd. Doc.": st.column_config.TextColumn("Qtd. Doc."),
+            },
+            key="orders_editor",
         )
-    with col_ex2:
-        pivot_bytes = make_pivot_excel(edited)
-        st.download_button(
-            "Tabela Dinâmica (Resumo)",
-            data=pivot_bytes,
-            file_name="tabela_dinamica_artigos.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-        )
-    with col_ex3:
-        labels_bytes = make_labels_pdf(edited, layout_option)
-        st.download_button(
-            "Etiquetas A4 (PDF)",
-            data=labels_bytes,
-            file_name="etiquetas_encomendas.pdf",
-            mime="application/pdf",
-            use_container_width=True,
-        )
+        st.session_state.data = edited
+
+        st.subheader("2. Exportar")
+        col_ex1, col_ex2, col_ex3 = st.columns(3)
+        with col_ex1:
+            excel_bytes = make_excel(edited)
+            st.download_button(
+                "Excel Consolidado",
+                data=excel_bytes,
+                file_name="encomendas_consolidadas.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        with col_ex2:
+            pivot_bytes = make_pivot_excel(edited)
+            st.download_button(
+                "Tabela Dinâmica (Resumo)",
+                data=pivot_bytes,
+                file_name="tabela_dinamica_artigos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+        with col_ex3:
+            labels_bytes = make_labels_pdf(edited, layout_option)
+            st.download_button(
+                "Etiquetas A4 (PDF)",
+                data=labels_bytes,
+                file_name="etiquetas_encomendas.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+
+# --- TAB 2: CONVERSOR DE EXCEL (FORMATO FICHEIRO 2) ---
+with tab2:
+    st.title("📦 Conversor de Encomendas Excel")
+    st.caption("Cruzamento de Encomendas (Tipo Ficheiro 1) com Base de Dados (Tipo Ficheiro 3) → Resultado (Formato Ficheiro 2)")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("1. Ficheiro de Encomenda")
+        file_env = st.file_uploader("Carregar Encomenda (.xlsx)", type=["xlsx"], key="f_env_tab2")
+
+    with col2:
+        st.subheader("2. Base de Dados de Equivalências")
+        file_db = st.file_uploader("Carregar Base de Dados (.xlsx)", type=["xlsx"], key="f_db_tab2")
+
+    if file_env is not None and file_db is not None:
+        st.success("Ficheiros Excel carregados com sucesso!")
+        
+        if st.button("🚀 Processar e Gerar Resultado (Formato Ficheiro 2)", type="primary"):
+            try:
+                # Ler Encomenda
+                df_env = pd.read_excel(file_env)
+                
+                # Ler Base de Dados (Ficheiro 3)
+                df_db = pd.read_excel(file_db, header=None)
+                df_db.columns = ['Art./Serv.', 'Descrição', 'Exemplo', 'Preço Unitário']
+
+                # Merge
+                merged = pd.merge(df_env, df_db[['Descrição', 'Exemplo', 'Preço Unitário']], on='Descrição', how='left')
+
+                merged['Preço Unitário'] = pd.to_numeric(merged['Preço Unitário'], errors='coerce')
+                
+                qtd_col = 'Qtd. Doc.' if 'Qtd. Doc.' in merged.columns else merged.columns[5]
+                merged['Qtd_num'] = pd.to_numeric(merged[qtd_col], errors='coerce').fillna(0)
+
+                # Estruturar Ficheiro 2
+                res = pd.DataFrame()
+                res['Descrição'] = merged['Descrição']
+                res['Qtd, Doc,'] = merged[qtd_col]
+                res['Exemplo'] = merged['Exemplo'].fillna('---')
+                
+                res['Preço Unitário'] = merged['Preço Unitário'].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else '---')
+                
+                res['Preço Total'] = merged.apply(
+                    lambda row: round(row['Qtd_num'] * row['Preço Unitário'], 2) if pd.notnull(row['Preço Unitário']) else None, 
+                    axis=1
+                )
+                
+                res['Molde e componente'] = merged['Molde e componente'] if 'Molde e componente' in merged.columns else ''
+                res['Dt. Prev. Entrega'] = merged['Dt. Prev. Entrega'] if 'Dt. Prev. Entrega' in merged.columns else ''
+
+                st.subheader("Pré-visualização do Resultado:")
+                st.dataframe(res, use_container_width=True)
+
+                # Download
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    res.to_excel(writer, index=False, sheet_name='Ficheiro2_Gerado')
+
+                st.download_button(
+                    label="📥 Descarregar Ficheiro Formato Ficheiro 2 (.xlsx)",
+                    data=buffer.getvalue(),
+                    file_name="Resultado_Formato_Ficheiro2.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Ocorreu um erro ao processar os ficheiros: {e}")
